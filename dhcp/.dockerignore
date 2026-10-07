@@ -1,0 +1,5 @@
+# El Dockerfile no copia nada de esta carpeta: la configuración y las
+# concesiones se montan como volúmenes. No hace falta enviarlas al build.
+leases/
+kea-dhcp4.conf
+.DS_Store

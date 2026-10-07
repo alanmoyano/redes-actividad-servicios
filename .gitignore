@@ -1,0 +1,7 @@
+# macOS
+.DS_Store
+
+# Concesiones DHCP: las escribe Kea en tiempo de ejecución (dhcp4.leases y
+# los archivos temporales de limpieza .1/.2/.completed). Se conserva la carpeta.
+dhcp/leases/*
+!dhcp/leases/.gitkeep

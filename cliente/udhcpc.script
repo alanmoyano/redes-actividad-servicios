@@ -1,0 +1,20 @@
+#!/bin/sh
+# Script que ejecuta udhcpc al recibir una concesión del servidor DHCP.
+# Aplica la IP, la puerta de enlace y los DNS recibidos.
+case "$1" in
+  deconfig)
+    ip -4 addr flush dev "$interface"
+    ;;
+  bound|renew)
+    ip -4 addr flush dev "$interface"
+    ip -4 addr add "$ip/$mask" ${broadcast:+broadcast $broadcast} dev "$interface"
+    ip -4 route replace default via "$router" dev "$interface"
+    {
+      [ -n "$domain" ] && echo "search $domain"
+      for d in $dns; do echo "nameserver $d"; done
+    } > /etc/resolv.conf   # se reescribe en el lugar: Docker lo monta como archivo
+    echo "[dhcp] $1: ip=$ip/$mask gw=$router dns=$dns dominio=$domain lease=${lease}s"
+    ;;
+  leasefail) echo "[dhcp] no se obtuvo concesión" >&2 ;;
+  nak)       echo "[dhcp] el servidor respondió NAK" >&2 ;;
+esac

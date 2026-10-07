@@ -1,0 +1,3 @@
+# Laboratorio: se permite autenticación sin TLS (NO usar en producción)
+auth_allow_cleartext = yes
+ssl = no

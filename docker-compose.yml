@@ -1,0 +1,142 @@
+# Red de laboratorio: Actividad Integradora VI - Redes de Datos
+#
+#   Red "lan" 10.10.10.0/24
+#   ├── 10.10.10.1    gateway (bridge de Docker, salida a Internet)
+#   ├── 10.10.10.10   dns      Technitium DNS Server   (53/udp+tcp, panel web 80)
+#   ├── 10.10.10.11   dhcp     ISC Kea DHCPv4          (67/udp)
+#   ├── 10.10.10.12   mail     docker-mailserver       (SMTP 25, Submission 587, IMAP 143)
+#   │                 webmail  Roundcube               (HTTP 80, comparte la IP de "mail")
+#   ├── 10.10.10.32-63    rango que usa Docker al crear los clientes (antes del DHCP)
+#   └── 10.10.10.100-150  pool DHCP para los clientes (reserva: 10.10.10.200)
+#
+# Docker sólo reparte IPs en 10.10.10.32/27 (ip_range). Los clientes arrancan con
+# una de esas, la borran y piden una nueva al servidor DHCP.
+
+name: redes-lab
+
+networks:
+  lan:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.10.10.0/24
+          ip_range: 10.10.10.32/27
+          gateway: 10.10.10.1
+
+volumes:
+  dns-data:
+  mail-data:
+  mail-state:
+  webmail-data:
+
+services:
+  dns:
+    image: technitium/dns-server:latest
+    container_name: dns
+    hostname: dns
+    environment:
+      DNS_SERVER_DOMAIN: dns.redes.lab
+      DNS_SERVER_ADMIN_PASSWORD: admin
+      DNS_SERVER_FORWARDERS: 1.1.1.1,8.8.8.8
+      DNS_SERVER_RECURSION: AllowOnlyForPrivateNetworks
+      DNS_SERVER_WEB_SERVICE_HTTP_PORT: 80 # panel web en http://dns.redes.lab (por defecto es 5380)
+    volumes:
+      - dns-data:/etc/dns
+    ports:
+      - "5380:80"   # panel web también en http://localhost:5380
+    networks:
+      lan:
+        ipv4_address: 10.10.10.10
+    restart: unless-stopped
+
+  dhcp:
+    build: ./dhcp
+    container_name: dhcp
+    hostname: dhcp
+    cap_add: [NET_ADMIN, NET_RAW]
+    volumes:
+      - ./dhcp/kea-dhcp4.conf:/etc/kea/kea-dhcp4.conf:ro
+      - ./dhcp/leases:/var/lib/kea   # concesiones persistentes (dhcp4.leases, formato CSV)
+    networks:
+      lan:
+        ipv4_address: 10.10.10.11
+    restart: unless-stopped
+
+  mail:
+    image: ghcr.io/docker-mailserver/docker-mailserver:latest
+    container_name: mail
+    hostname: mail.redes.lab
+    environment:
+      OVERRIDE_HOSTNAME: mail.redes.lab
+      PERMIT_DOCKER: none
+      SSL_TYPE: ""
+      ENABLE_CLAMAV: 0
+      ENABLE_SPAMASSASSIN: 0
+      ENABLE_RSPAMD: 0
+      ENABLE_AMAVIS: 0
+      ENABLE_FAIL2BAN: 0
+      ENABLE_POSTGREY: 0
+      ENABLE_OPENDKIM: 0
+      ENABLE_OPENDMARC: 0
+      ENABLE_POLICYD_SPF: 0
+      LOG_LEVEL: info
+    volumes:
+      - ./mail/config:/tmp/docker-mailserver
+      - mail-data:/var/mail
+      - mail-state:/var/mail-state
+    ports:
+      - "80:80"     # webmail en http://localhost (Roundcube usa la red de este contenedor)
+      - "8080:80"   # webmail para otras computadoras de la LAN: http://<IP-de-la-Mac>:8080
+    networks:
+      lan:
+        ipv4_address: 10.10.10.12
+    restart: unless-stopped
+
+  # Webmail: comparte la interfaz de red de "mail", así http://mail.redes.lab
+  # responde con Roundcube y éste habla con Postfix/Dovecot por localhost.
+  webmail:
+    image: roundcube/roundcubemail:latest
+    container_name: webmail
+    network_mode: service:mail
+    environment:
+      ROUNDCUBEMAIL_DEFAULT_HOST: localhost   # IMAP sin cifrar (143)
+      ROUNDCUBEMAIL_DEFAULT_PORT: 143
+      ROUNDCUBEMAIL_SMTP_SERVER: localhost    # Submission (587)
+      ROUNDCUBEMAIL_SMTP_PORT: 587
+      ROUNDCUBEMAIL_DB_TYPE: sqlite
+      ROUNDCUBEMAIL_SKIN: elastic
+      ROUNDCUBEMAIL_PLUGINS: archive,zipdownload,markasjunk
+    volumes:
+      - ./webmail/config.inc.php:/var/roundcube/config/lab.inc.php:ro
+      - webmail-data:/var/roundcube/db
+    depends_on: [mail]
+    restart: unless-stopped
+
+  cliente1:
+    build: ./cliente
+    container_name: cliente1
+    hostname: cliente1
+    cap_add: [NET_ADMIN]
+    environment:
+      MAIL_USER: alumno1@redes.lab
+      MAIL_PASS: alumno1
+    networks:
+      lan:
+        # MAC fija (sin reserva): al recrear el contenedor, Kea reconoce al
+        # mismo equipo y le devuelve la IP de su concesión vigente
+        mac_address: "02:42:0a:0a:00:64"
+    depends_on: [dhcp, dns, mail]
+
+  cliente2:
+    build: ./cliente
+    container_name: cliente2
+    hostname: cliente2
+    cap_add: [NET_ADMIN]
+    environment:
+      MAIL_USER: alumno2@redes.lab
+      MAIL_PASS: alumno2
+    networks:
+      lan:
+        # MAC fija: el servidor DHCP tiene una reserva para ella (10.10.10.200)
+        mac_address: "02:42:0a:0a:00:c8"
+    depends_on: [dhcp, dns, mail]

@@ -1,0 +1,2 @@
+# Laboratorio: se permite AUTH sin TLS en el puerto 587 (NO usar en producción)
+smtpd_tls_auth_only = no
