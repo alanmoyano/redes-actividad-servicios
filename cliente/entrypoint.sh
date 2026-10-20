@@ -1,6 +1,5 @@
 #!/bin/sh
 set -e
-IFACE=eth0
 
 # 1. Configuración de mutt (cliente de correo) para el usuario de este equipo
 if [ -n "$MAIL_USER" ]; then
@@ -20,9 +19,5 @@ set record     = ""
 MUTT
 fi
 
-# 2. Se descarta la IP que asignó Docker y se pide una al servidor DHCP
-echo "[dhcp] IP inicial asignada por Docker: $(ip -4 -o addr show $IFACE | awk '{print $4}')"
-ip -4 addr flush dev $IFACE
-udhcpc -i $IFACE -s /etc/udhcpc/lab.script -x hostname:$(hostname) -b -t 10 -T 2
-
-exec "$@"
+# 2. Aplica DHCP antes de ejecutar el comando del contenedor.
+exec /usr/local/bin/lab-dhcp "$@"
