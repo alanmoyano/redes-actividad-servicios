@@ -140,6 +140,7 @@ services:
         # mismo equipo y le devuelve la IP de su concesión vigente
         mac_address: "02:42:0a:0a:00:64"
     depends_on: [dhcp, dns, mail]
+    restart: unless-stopped
 
   cliente2:
     build:
@@ -156,3 +157,4 @@ services:
         # MAC fija: el servidor DHCP tiene una reserva para ella (10.10.10.200)
         mac_address: "02:42:0a:0a:00:c8"
     depends_on: [dhcp, dns, mail]
+    restart: unless-stopped
