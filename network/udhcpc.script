@@ -6,9 +6,12 @@ case "$1" in
     ip -4 addr flush dev "$interface"
     ;;
   bound|renew)
-    ip -4 addr flush dev "$interface"
-    ip -4 addr add "$ip/$mask" ${broadcast:+broadcast $broadcast} dev "$interface"
-    ip -4 route replace default via "$router" dev "$interface"
+    ip -4 addr replace "$ip/$mask" ${broadcast:+broadcast $broadcast} dev "$interface"
+    # DHCP puede entregar varios routers; usamos el primero.
+    for gateway in $router; do
+      ip -4 route replace default via "$gateway" dev "$interface"
+      break
+    done
     {
       [ -n "$domain" ] && echo "search $domain"
       for d in $dns; do echo "nameserver $d"; done
