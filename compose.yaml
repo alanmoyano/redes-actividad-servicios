@@ -15,6 +15,10 @@
 
 name: redes-lab
 
+# Íconos para OrbStack (icons/). El del proyecto va en todos los servicios.
+x-labels: &orbstack-project
+  dev.orbstack.compose-icon: https://raw.githubusercontent.com/alanmoyano/redes-actividad-servicios/refs/heads/main/icons/redes-lab.svg
+
 networks:
   lan:
     driver: bridge
@@ -26,9 +30,17 @@ networks:
 
 volumes:
   dns-data:
+    labels:
+      dev.orbstack.icon: https://raw.githubusercontent.com/alanmoyano/redes-actividad-servicios/refs/heads/main/icons/dns-data.svg
   mail-data:
+    labels:
+      dev.orbstack.icon: https://raw.githubusercontent.com/alanmoyano/redes-actividad-servicios/refs/heads/main/icons/mail-data.svg
   mail-state:
+    labels:
+      dev.orbstack.icon: https://raw.githubusercontent.com/alanmoyano/redes-actividad-servicios/refs/heads/main/icons/mail-state.svg
   webmail-data:
+    labels:
+      dev.orbstack.icon: https://raw.githubusercontent.com/alanmoyano/redes-actividad-servicios/refs/heads/main/icons/webmail-data.svg
 
 services:
   dns:
@@ -38,6 +50,9 @@ services:
     cap_add: [NET_ADMIN]
     depends_on: [dhcp]
     container_name: dns
+    labels:
+      <<: *orbstack-project
+      dev.orbstack.icon: https://raw.githubusercontent.com/alanmoyano/redes-actividad-servicios/refs/heads/main/icons/dns.svg
     hostname: dns
     environment:
       DNS_SERVER_DOMAIN: dns.redes.lab
@@ -59,6 +74,9 @@ services:
   dhcp:
     build: ./dhcp
     container_name: dhcp
+    labels:
+      <<: *orbstack-project
+      dev.orbstack.icon: https://raw.githubusercontent.com/alanmoyano/redes-actividad-servicios/refs/heads/main/icons/dhcp.svg
     hostname: dhcp
     cap_add: [NET_ADMIN, NET_RAW]
     volumes:
@@ -76,6 +94,9 @@ services:
     cap_add: [NET_ADMIN]
     depends_on: [dhcp]
     container_name: mail
+    labels:
+      <<: *orbstack-project
+      dev.orbstack.icon: https://raw.githubusercontent.com/alanmoyano/redes-actividad-servicios/refs/heads/main/icons/mail.svg
     hostname: mail.redes.lab
     environment:
       OVERRIDE_HOSTNAME: mail.redes.lab
@@ -109,6 +130,9 @@ services:
   webmail:
     image: roundcube/roundcubemail:1.7.5-apache@sha256:fea690452cad870440eb231ef2a0c019a46fc5ba5afb069a2edcbf1ce6ab22ab
     container_name: webmail
+    labels:
+      <<: *orbstack-project
+      dev.orbstack.icon: https://raw.githubusercontent.com/alanmoyano/redes-actividad-servicios/refs/heads/main/icons/webmail.svg
     network_mode: service:mail
     environment:
       ROUNDCUBEMAIL_DEFAULT_HOST: localhost   # IMAP sin cifrar (143)
@@ -129,6 +153,9 @@ services:
       context: .
       dockerfile: cliente/Dockerfile
     container_name: cliente1
+    labels:
+      <<: *orbstack-project
+      dev.orbstack.icon: https://raw.githubusercontent.com/alanmoyano/redes-actividad-servicios/refs/heads/main/icons/cliente1.svg
     hostname: cliente1
     cap_add: [NET_ADMIN]
     environment:
@@ -147,6 +174,9 @@ services:
       context: .
       dockerfile: cliente/Dockerfile
     container_name: cliente2
+    labels:
+      <<: *orbstack-project
+      dev.orbstack.icon: https://raw.githubusercontent.com/alanmoyano/redes-actividad-servicios/refs/heads/main/icons/cliente2.svg
     hostname: cliente2
     cap_add: [NET_ADMIN]
     environment:
