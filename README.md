@@ -1,21 +1,38 @@
 # Actividad Integradora VI – Laboratorio de servicios de red en Docker
 
-Red virtual con tres servidores (DHCP, DNS y correo con webmail) y dos equipos cliente, todo en contenedores.
+## Topología
 
-```
-                    Red "lan" 10.10.10.0/24 (bridge de Docker)
- ┌──────────────┬──────────────┬───────────────┬────────────────┬────────────────┐
- │ dns          │ dhcp         │ mail          │ cliente1       │ cliente2       │
- │ 10.10.10.10  │ 10.10.10.11  │ 10.10.10.12   │ DHCP (pool)    │ DHCP (reserva) │
- │ Technitium   │ ISC Kea      │ Postfix +     │ 10.10.10.100.. │ 10.10.10.200   │
- │ DNS Server   │ DHCPv4       │ Dovecot +     │                │                │
- │              │              │ Roundcube     │                │                │
- └──────────────┴──────────────┴───────────────┴────────────────┴────────────────┘
-   gateway 10.10.10.1 (salida a Internet)       dominio: redes.lab
+```mermaid
+flowchart TB
+    internet["Internet"]
+
+    subgraph lan["Red Docker lan · 10.10.10.0/24 · dominio redes.lab"]
+        gateway["Gateway del bridge<br/>10.10.10.1"]
+        bridge["Bridge Docker"]
+        dns["dns · Technitium<br/>10.10.10.10 · reserva DHCP<br/>DNS 53 UDP/TCP · panel HTTP 80"]
+        dhcp["dhcp · ISC Kea<br/>10.10.10.11 · IP estática<br/>DHCP 67 UDP"]
+        cliente1["cliente1 · DHCP dinámico<br/>Pool 10.10.10.100–10.10.10.150"]
+        cliente2["cliente2 · reserva DHCP<br/>10.10.10.200"]
+
+        subgraph correo["Interfaz compartida · 10.10.10.12 · reserva DHCP"]
+            mail["mail · Postfix / Dovecot<br/>SMTP 25 · Submission 587 · IMAP 143"]
+            webmail["webmail · Roundcube<br/>HTTP 80"]
+            webmail -->|"localhost · IMAP 143 / SMTP 587"| mail
+        end
+
+        gateway --- bridge
+        bridge --- dns
+        bridge --- dhcp
+        bridge --- mail
+        bridge --- cliente1
+        bridge --- cliente2
+    end
+
+    gateway --> internet
 ```
 
-Roundcube corre en su propio contenedor (`webmail`), pero comparte la interfaz de red de `mail`.
-Por eso `http://mail.redes.lab` responde con el webmail, y éste se conecta a Postfix y Dovecot por `localhost`.
+DNS, mail y los clientes reciben de Kea el gateway, el DNS y el dominio.
+Roundcube comparte la interfaz de red de mail mediante `network_mode: service:mail`.
 
 ## Software utilizado
 
@@ -28,42 +45,10 @@ Por eso `http://mail.redes.lab` responde con el webmail, y éste se conecta a Po
 | Correo – lectura | Dovecot (docker-mailserver 16.0.1) | `mutt`, `curl`, Thunderbird | 143/TCP (IMAP) | Sí |
 | Webmail | Roundcube 1.7.5 (Apache + PHP) | Navegador web | 80/TCP (HTTP); 8080 en la Mac para la LAN | Sí (80) dentro de la red |
 
-## Imágenes y actualizaciones
-
-Las imágenes base de clientes y DHCP usan Debian `trixie-slim` con glibc.
-Los paquetes se instalan con `--no-install-recommends` y se elimina el índice de APT.
-DNS y mail extienden sus imágenes oficiales de Ubuntu y Debian, respectivamente.
-Roundcube usa la variante Apache basada en Debian, que incluye el servidor HTTP
-necesario para el webmail. No se utiliza Alpine ni musl.
-
-Todas las imágenes externas están fijadas con `tag@sha256:digest`, incluidos los
-`FROM` de los Dockerfiles y la imagen de Roundcube en Compose. El digest corresponde
-al índice multiarch, con soporte para `linux/amd64` y `linux/arm64`; Docker selecciona
-la variante de la máquina sin cambiar el contenido fijado para esa arquitectura.
-Los hashes se mantienen junto a cada referencia para que haya una sola fuente de verdad.
-
-Para actualizar una imagen, elegí la versión y consultá su digest y plataformas:
-
-```sh
-docker buildx imagetools inspect debian:trixie-slim
-docker buildx imagetools inspect technitium/dns-server:15.6.2
-docker buildx imagetools inspect ghcr.io/docker-mailserver/docker-mailserver:16.0.1
-docker buildx imagetools inspect roundcube/roundcubemail:1.7.5-apache
-```
-
-Reemplazá la tag y el digest juntos, actualizá las dos referencias de Debian si
-cambiás esa base, y reconstruí con `docker compose build --pull --no-cache`.
-Descargá Roundcube con `docker compose pull webmail` y repetí las verificaciones
-al final de este documento. Un digest permanece fijo aunque se vuelva a publicar
-la tag; las actualizaciones de seguridad de la base requieren actualizarlo.
-APT sigue usando los repositorios de la distribución, por lo que los paquetes
-instalados durante el build pueden recibir actualizaciones aunque la base esté fijada.
-
 ## Puesta en marcha
 
 ```sh
 # Opcional: copiá .env.example a .env y ajustá puertos o credencial DNS.
-# En PowerShell: Copy-Item .env.example .env
 cp .env.example .env
 
 docker compose up -d --build      # levanta servidores y clientes
@@ -74,10 +59,6 @@ Requiere Docker Engine con Compose v2.23.2 o posterior, o Docker Desktop en modo
 Linux containers. Para ejecutar el setup en Windows usá Git Bash o WSL con `curl`.
 El setup espera hasta 60 segundos al DNS. Los servicios esperan la concesión DHCP
 antes de arrancar; los registros del laboratorio se crean al ejecutar el setup.
-
-Todos los archivos de texto usan LF mediante `.gitattributes` y `.editorconfig`.
-Los builds también eliminan CRLF de los scripts. Esto evita el error de entry point causado por un shebang `/bin/sh\r` al clonar
-en Windows. Si tenés una imagen anterior, reconstruí con `docker compose build --no-cache`.
 
 `.env` permite cambiar los puertos publicados y la contraseña inicial del administrador
 DNS sin editar Compose. El setup lee `DNS_PANEL_PORT` y `DNS_ADMIN_PASSWORD` como
@@ -141,23 +122,7 @@ docker exec -it cliente1 sh
   dig google.com              # recursión hacia Internet (forwarders 1.1.1.1 / 8.8.8.8)
 ```
 
-Si el host tiene acceso directo a la red de contenedores, también se puede consultar: `dig @10.10.10.10 mail.redes.lab` (o `nslookup mail.redes.lab 10.10.10.10` en Windows).
-
 ### Correo
-
-```sh
-# cliente1 (alumno1) envía un mail a alumno2
-docker exec -it cliente1 mutt              # interactivo: "m" para redactar
-docker exec cliente1 sh -c 'echo "Hola!" | mutt -s "Prueba" alumno2@redes.lab'
-
-# cliente2 (alumno2) lee su bandeja
-docker exec -it cliente2 mutt
-
-# Ver la transacción en el servidor
-docker logs -f mail
-```
-
-### Webmail (Roundcube)
 
 1. Abrí <http://mail.redes.lab> (o <http://localhost>) e ingresá con `alumno1` / `alumno1` (no hace falta escribir `@redes.lab`).
 2. Redactar → destinatario `alumno2@redes.lab` → Enviar.
@@ -179,9 +144,6 @@ docker exec -it cliente1 telnet mail.redes.lab 25
   QUIT
 ```
 
-**Thunderbird en la Mac:** OrbStack permite llegar a las IPs de los contenedores desde la Mac.
-Configurá la cuenta a mano con IMAP `10.10.10.12:143` y SMTP `10.10.10.12:587`, sin cifrado y con contraseña normal.
-
 ## Usar el DNS del laboratorio desde tu computadora
 
 Si el host puede acceder a `10.10.10.0/24`, después del setup puede abrir
@@ -189,15 +151,6 @@ Si el host puede acceder a `10.10.10.0/24`, después del setup puede abrir
 `10.10.10.10` como servidor DNS en los ajustes de red del sistema operativo.
 Con Docker Desktop usá los puertos publicados en `localhost`; las IP internas
 no son accesibles directamente desde el host.
-
-- **macOS:** Ajustes del Sistema → Red → (WiFi o Ethernet) → Detalles → DNS → `+` → `10.10.10.10`.
-- **Windows:** Configuración → Red e Internet → (adaptador) → Asignación de servidor DNS → Editar → Manual → IPv4 → DNS preferido `10.10.10.10`.
-- **Linux (GNOME):** Configuración → Red → (conexión) → IPv4 → DNS: desactivar "Automático" y poner `10.10.10.10`.
-
-No hace falta tocar archivos del sistema. Así funciona:
-
-1. El navegador le pregunta a Technitium por `mail.redes.lab`, y Technitium responde `10.10.10.12` porque es el servidor autoritativo de la zona `redes.lab`.
-2. Para cualquier otro dominio (`google.com`, etc.), Technitium hace de **resolver recursivo** y le consulta a `1.1.1.1` y `8.8.8.8`. Internet sigue funcionando con normalidad.
 
 **Requisito: la computadora tiene que poder llegar a la red `10.10.10.0/24`.**
 
@@ -209,16 +162,6 @@ No hace falta tocar archivos del sistema. Así funciona:
 
 > **Importante:** mientras el DNS de la computadora sea `10.10.10.10`, toda la resolución de nombres depende de que el contenedor `dns` esté levantado.
 > Al terminar, o si se apaga Docker, volvé el DNS a "Automático" o vas a quedarte sin Internet "por nombre".
-
-### Desde otra computadora de la misma red WiFi/LAN
-
-Otra computadora no ve la red `10.10.10.0/24`, que vive dentro del equipo que corre Docker.
-Sí ve la IP de ese equipo en la LAN (por ejemplo `192.168.0.28`; en macOS se consulta con `ipconfig getifaddr en0`), donde el webmail está publicado en el puerto **8080**:
-
-- Directo por IP: `http://192.168.0.28:8080`.
-- Por nombre: agregar en el archivo *hosts* la línea `192.168.0.28  mail.redes.lab` y abrir `http://mail.redes.lab:8080`.
-  - El archivo es `/etc/hosts` en Mac y Linux, y `C:\Windows\System32\drivers\etc\hosts` en Windows.
-- Se usa el 8080 porque OrbStack sólo expone los puertos menores a 1024, como el 80, en `localhost`.
 
 ## Archivos
 
