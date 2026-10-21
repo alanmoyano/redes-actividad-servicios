@@ -10,7 +10,8 @@
 #   └── 10.10.10.100-150  pool DHCP para los clientes (reserva: 10.10.10.200)
 #
 # Docker sólo reparte IPs en 10.10.10.32/27 (ip_range). Los clientes arrancan con
-# una de esas, la borran y piden una nueva al servidor DHCP.
+# una de esas, la borran y piden una nueva al servidor DHCP. DNS y mail piden
+# por DHCP sus IP reservadas, iguales a las declaradas para el port forwarding.
 
 name: redes-lab
 
@@ -43,7 +44,11 @@ volumes:
 
 services:
   dns:
-    image: technitium/dns-server:latest
+    build:
+      context: .
+      dockerfile: dns/Dockerfile
+    cap_add: [NET_ADMIN]
+    depends_on: [dhcp]
     container_name: dns
     labels:
       <<: *orbstack-project
@@ -51,17 +56,19 @@ services:
     hostname: dns
     environment:
       DNS_SERVER_DOMAIN: dns.redes.lab
-      DNS_SERVER_ADMIN_PASSWORD: admin
+      DNS_SERVER_ADMIN_PASSWORD: ${DNS_ADMIN_PASSWORD:-admin}
       DNS_SERVER_FORWARDERS: 1.1.1.1,8.8.8.8
       DNS_SERVER_RECURSION: AllowOnlyForPrivateNetworks
       DNS_SERVER_WEB_SERVICE_HTTP_PORT: 80 # panel web en http://dns.redes.lab (por defecto es 5380)
     volumes:
       - dns-data:/etc/dns
     ports:
-      - "5380:80"   # panel web también en http://localhost:5380
+      - "${DNS_PANEL_PORT:-5380}:80"   # panel web también en http://localhost:5380
     networks:
       lan:
+        # Docker conserva la misma IP que la reserva DHCP para publicar puertos.
         ipv4_address: 10.10.10.10
+        mac_address: "02:42:0a:0a:00:0a"
     restart: unless-stopped
 
   dhcp:
@@ -81,7 +88,11 @@ services:
     restart: unless-stopped
 
   mail:
-    image: ghcr.io/docker-mailserver/docker-mailserver:latest
+    build:
+      context: .
+      dockerfile: mail/Dockerfile
+    cap_add: [NET_ADMIN]
+    depends_on: [dhcp]
     container_name: mail
     labels:
       <<: *orbstack-project
@@ -106,17 +117,18 @@ services:
       - mail-data:/var/mail
       - mail-state:/var/mail-state
     ports:
-      - "80:80"     # webmail en http://localhost (Roundcube usa la red de este contenedor)
-      - "8080:80"   # webmail para otras computadoras de la LAN: http://<IP-de-la-Mac>:8080
+      - "${WEBMAIL_PORT:-80}:80"     # webmail en http://localhost (Roundcube usa la red de este contenedor)
+      - "${WEBMAIL_LAN_PORT:-8080}:80"   # webmail para otras computadoras de la LAN: http://<IP-de-la-Mac>:8080
     networks:
       lan:
         ipv4_address: 10.10.10.12
+        mac_address: "02:42:0a:0a:00:0c"
     restart: unless-stopped
 
   # Webmail: comparte la interfaz de red de "mail", así http://mail.redes.lab
   # responde con Roundcube y éste habla con Postfix/Dovecot por localhost.
   webmail:
-    image: roundcube/roundcubemail:latest
+    image: roundcube/roundcubemail:1.7.5-apache@sha256:fea690452cad870440eb231ef2a0c019a46fc5ba5afb069a2edcbf1ce6ab22ab
     container_name: webmail
     labels:
       <<: *orbstack-project
@@ -137,7 +149,9 @@ services:
     restart: unless-stopped
 
   cliente1:
-    build: ./cliente
+    build:
+      context: .
+      dockerfile: cliente/Dockerfile
     container_name: cliente1
     labels:
       <<: *orbstack-project
@@ -153,9 +167,12 @@ services:
         # mismo equipo y le devuelve la IP de su concesión vigente
         mac_address: "02:42:0a:0a:00:64"
     depends_on: [dhcp, dns, mail]
+    restart: unless-stopped
 
   cliente2:
-    build: ./cliente
+    build:
+      context: .
+      dockerfile: cliente/Dockerfile
     container_name: cliente2
     labels:
       <<: *orbstack-project
@@ -170,3 +187,4 @@ services:
         # MAC fija: el servidor DHCP tiene una reserva para ella (10.10.10.200)
         mac_address: "02:42:0a:0a:00:c8"
     depends_on: [dhcp, dns, mail]
+    restart: unless-stopped
